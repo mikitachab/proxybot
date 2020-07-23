@@ -27,7 +27,7 @@ chat_list = ChatList("chatlist")
 
 
 def get_random_emoji_alias():
-    return random.choice(emoji.EMOJI_ALIAS_UNICODE.keys())
+    return random.choice(list(emoji.EMOJI_ALIAS_UNICODE.keys()))
 
 
 def start(update, context):
