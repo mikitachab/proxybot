@@ -1,59 +1,58 @@
 import os
-import random
 
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import (
+    Updater,
+    CommandHandler,
+    MessageHandler,
+    Filters
+)
 import redis
 import emoji
 
+import db
+
+
 TOKEN = os.getenv("TOKEN")
-updater = Updater(token=TOKEN, use_context=True)
-dispatcher = updater.dispatcher
+
 redisc = redis.Redis()
+proxy_db = db.ProxyBotDB(redisc)
 
 
-class ChatList:
-    def __init__(self, list_name):
-        self.redis = redis.Redis()
-        self.list_name = list_name
-
-    def add_chat(self, chat_id):
-        self.redis.rpush(self.list_name, chat_id)
-
-    def get_chats(self):
-        return [int(chat) for chat in self.redis.lrange(self.list_name, 0, -1)]
-
-
-chat_list = ChatList("chatlist")
-
-
-def get_random_emoji_alias():
-    return random.choice(list(emoji.EMOJI_ALIAS_UNICODE.keys()))
+def leave(update, context):
+    chat_id = update.effective_chat.id
+    proxy_db.remove_chat(chat_id)
 
 
 def start(update, context):
     chat_id = update.effective_chat.id
-    chat_list.add_chat(chat_id)
-    redisc.set(chat_id, get_random_emoji_alias())
+    proxy_db.add_chat(chat_id)
     context.bot.send_message(chat_id=chat_id, text="Let's start")
 
 
 def text_message(update, context):
-    current_chat = update.effective_chat.id
-    chats_to_send = [chat for chat in chat_list.get_chats() if chat != current_chat]
-    prefix = redisc.get(current_chat)
-    message = emoji.emojize(f"{prefix}: {update.message.text}", use_aliases=True)
+    current_chat = proxy_db.get_chat_by_id(update.effective_chat.id)
+    print(current_chat)
+    chats_to_send = [chat for chat in proxy_db.get_chats() if chat.chat_id != current_chat.chat_id]
+    message = emoji.emojize(f"{current_chat.emoji_alias}: {update.message.text}", use_aliases=True)
+    print(message)
+    print(type(message))
     for chat in chats_to_send:
-        context.bot.send_message(chat_id=chat, text=message)
-
-
-text_filter = Filters.text & (~Filters.command)
-message_handler = MessageHandler(text_filter, text_message)
-start_handler = CommandHandler("start", start)
+        print(chat)
+        context.bot.send_message(chat_id=chat.chat_id, text=message)
 
 
 def main():
+    updater = Updater(token=TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+
+    text_filter = Filters.text & (~Filters.command)
+    message_handler = MessageHandler(text_filter, text_message)
+    start_handler = CommandHandler("start", start)
+    leave_handler = CommandHandler("leave", leave)
+
     dispatcher.add_handler(start_handler)
     dispatcher.add_handler(message_handler)
+    dispatcher.add_handler(leave_handler)
 
     print("started polling")
     updater.start_polling()
